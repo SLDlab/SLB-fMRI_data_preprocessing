@@ -31,6 +31,221 @@ The pipeline enforces strict separation between:
 - **Work directories** — scratch/intermediate files, safe to regenerate
 - **Logs** — execution history for debugging and auditing
 
+## Automated Production Pipeline
+
+The SLB preprocessing workflow is automated using Snakemake for workflow orchestration and SLURM for computationally intensive preprocessing.
+
+The automation builds on the existing scientific scripts documented below. Snakemake determines which participants require processing, tracks completed steps, validates preprocessing inputs, and submits eligible participants for fMRIPrep.
+
+The production pipeline runs on the UMD SLD server:
+
+```text
+/data/sld/homes/collab/slb/
+```
+
+### Automated Workflow
+
+```text
+fMRI2
+  |
+  | Daily, 2:00 AM
+  v
+Raw-data transfer
+  |
+  v
+raw_data/
+  |
+  | Daily, 6:00 AM
+  v
+Snakemake preparation
+  |
+  v
+Participant discovery
+  |
+  v
+BIDS conversion
+  |
+  v
+IntendedFor assignment
+  |
+  v
+BIDS events generation
+  |
+  v
+Participant validation
+  |
+  v
+state/ready/sub-XXX.ready
+  |
+  | Saturday, 5:00 AM
+  v
+Snakemake + SLURM
+  |
+  v
+fMRIPrep
+  |
+  v
+derivatives/fmriprep_runs/sub-XXX.html
+  |
+  | Monday, 9:00 AM
+  v
+Weekly Slack summary
+```
+
+### Automated Schedule
+
+| Schedule | Operation | Script |
+|---|---|---|
+| Daily, 2:00 AM | Transfer raw scanner data | `/usr/local/sbin/sync-slb.sh` |
+| Daily, 6:00 AM | Prepare and validate participants | `run_prepare.sh` |
+| Daily, 8:00 AM | Report raw-data transfer changes | `scripts/nightly_extract_and_notify.sh` |
+| Saturday, 5:00 AM | Run pending fMRIPrep jobs | `run_weekend_fmriprep.sh` |
+| Monday, 9:00 AM | Send weekly preprocessing summary | `scripts/slack_notify.sh` |
+
+The scheduled jobs are managed through cron on the SLD server.
+
+### Snakemake Workflow
+
+The automation is organized into the following components:
+
+```text
+Snakefile
+
+workflow/
+├── rules/
+│   ├── discovery.smk
+│   ├── preparation.smk
+│   ├── validation.smk
+│   └── fmriprep.smk
+│
+└── scripts/
+    └── validate_subject.py
+
+config/
+├── snakemake.yaml.example
+└── snakemake-requirements-lock.txt
+
+profiles/
+└── slurm/
+    └── config.yaml
+
+run_prepare.sh
+run_weekend_fmriprep.sh
+pipeline_status.sh
+bootstrap_existing_state.sh
+```
+
+The workflow is designed to be idempotent: completed processing is not repeated unless the relevant inputs or required outputs change.
+
+### Participant Readiness
+
+Each participant progresses through BIDS conversion, IntendedFor assignment, behavioral event generation, and validation.
+
+Successful validation creates:
+
+```text
+state/ready/sub-XXX.ready
+```
+
+This marker indicates that the participant is eligible for the weekend fMRIPrep workflow.
+
+Validation checks the functional runs that actually exist, allowing for legitimately missing acquisitions.
+
+### Weekend fMRIPrep
+
+The weekend workflow automatically identifies participants that are ready for preprocessing but do not yet have a completed fMRIPrep report.
+
+Each fMRIPrep job currently requests:
+
+- 16 CPUs
+- 48 GB RAM
+- The SLURM compute partition
+
+The workflow allows a maximum of three concurrent fMRIPrep jobs.
+
+This is a concurrency limit, not a weekly participant limit. When a job finishes, Snakemake can submit another eligible participant.
+
+A participant's automated fMRIPrep stage is considered complete when the corresponding non-empty report exists:
+
+```text
+derivatives/fmriprep_runs/sub-XXX.html
+```
+
+This is a processing-completion checkpoint, not a substitute for reviewing the participant's quality-control results.
+
+### SLURM Compatibility
+
+The SLD cluster does not provide completed-job accounting through `sacct`.
+
+The Snakemake SLURM profile therefore explicitly uses:
+
+```yaml
+slurm-status-command: squeue
+```
+
+This allows Snakemake to track submitted jobs and recognize their completion.
+
+### Weekly Slack Summary
+
+Every Monday at 9:00 AM, the pipeline posts a summary to the lab's Slack channel.
+
+The summary includes:
+
+- Participants newly completed since the previous successful report
+- Total participants with completed fMRIPrep reports
+- Participants ready for fMRIPrep but still pending
+
+The Slack notifier is implemented in:
+
+```text
+scripts/slack_notify.sh
+```
+
+The notification sends operational status information. Raw imaging data, behavioral datasets, and preprocessing derivatives are not uploaded to Slack.
+
+### Checking Pipeline Status
+
+Run these commands from the production SLB directory on SLD.
+
+Check daily preparation:
+
+```bash
+./run_prepare.sh --dry-run
+```
+
+Check pending fMRIPrep work:
+
+```bash
+./run_weekend_fmriprep.sh --dry-run
+```
+
+Check overall pipeline status:
+
+```bash
+./pipeline_status.sh
+```
+
+Count completed fMRIPrep reports:
+
+```bash
+find derivatives/fmriprep_runs \
+    -maxdepth 1 \
+    -type f \
+    -name 'sub-*.html' \
+    -size +0c \
+    | wc -l
+```
+
+### Data Privacy
+
+Snakemake runs locally on SLD and submits computational jobs to the UMD SLURM cluster.
+
+The workflow does not upload research data to a Snakemake-hosted service.
+
+Raw data, BIDS data, behavioral datasets, derivatives, credentials, and operational secrets must remain outside the repository.
+
+The production Slack webhook is stored locally and must never be committed to version control.
+
 ## Pipeline Architecture
 
 | Stage | Script | Responsibility |
