@@ -560,6 +560,72 @@ work/fmriprep_runs/sub-XXX/
 ./run_fmriprep_runs.sh XXX
 ```
 
+## Stage 6. MRIQC
+
+### Script
+`run_mriqc_runs.sh`
+
+### Purpose
+Runs MRIQC to assess the quality of anatomical and functional MRI data and generate quantitative metrics and visual reports.
+
+MRIQC is an optional quality-control step. It does not modify the input BIDS dataset.
+
+### What it does
+
+- Validates that the requested subjects exist in the BIDS dataset.
+- Runs MRIQC in participant mode using an Apptainer container.
+- Computes image-quality metrics for anatomical and functional scans.
+- Generates subject-level quality-control reports.
+- Supports individual subjects, multiple subjects, subject ranges, and all available subjects.
+- Optionally runs group-level quality-control aggregation.
+
+### Input
+
+- BIDS dataset in `bids_runs/`
+- MRIQC Apptainer container (`mriqc_23.0.1.sif`)
+
+### Output
+
+```text
+derivatives/mriqc_runs/
+work/mriqc_runs/
+logs/mriqc_<timestamp>.log
+```
+
+### Commands
+
+Run MRIQC for a single subject:
+
+```bash
+./scripts/run_mriqc_runs.sh 000
+```
+
+Run for multiple subjects:
+
+```bash
+./scripts/run_mriqc_runs.sh 000 001 002
+```
+
+Run for a range of subjects:
+
+```bash
+./scripts/run_mriqc_runs.sh --range 000 003
+```
+
+Run for all available subjects and generate group-level reports:
+
+```bash
+./scripts/run_mriqc_runs.sh --all --group
+```
+
+Preview the commands without running MRIQC:
+
+```bash
+./scripts/run_mriqc_runs.sh 000 --dry-run
+```
+
+**Note:** These commands use the SLD production layout, where the script is inside `scripts/`. In the GitHub repository, the existing script is currently at the root.
+
 ## Stage 7. MNI6 Preprocessing for AROMA
 
 ### Script
