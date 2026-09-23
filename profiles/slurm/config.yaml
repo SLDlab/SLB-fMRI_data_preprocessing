@@ -1,0 +1,32 @@
+executor: slurm
+
+jobs: 3
+latency-wait: 120
+rerun-incomplete: true
+keep-going: true
+printshellcmds: true
+show-failed-logs: true
+
+# This cluster has no SLURM accounting database.
+# Do not use sacct for job-status polling or account discovery.
+slurm-status-command: squeue
+slurm-no-account: true
+
+envvars:
+  - HOME
+  - XDG_CACHE_HOME
+  - XDG_CONFIG_HOME
+  - XDG_DATA_HOME
+
+default-resources:
+  mem_mb: 4000
+  runtime: 60
+
+set-threads:
+  fmriprep: 16
+
+set-resources:
+  fmriprep:
+    mem_mb: 48000
+    runtime: 2880
+    slurm_partition: compute

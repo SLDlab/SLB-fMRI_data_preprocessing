@@ -1,0 +1,35 @@
+mode: production
+
+project_root: /path/to/slb
+production_root: /path/to/slb
+
+paths:
+  raw: raw_data
+  behav: behav_data/fMRI/data
+  bids: bids_runs
+  derivatives: derivatives/fmriprep_runs
+  state: state
+  logs: logs/snakemake
+
+scripts:
+  bidsify: scripts/bidsify_runs.sh
+  intendedfor: scripts/add_intendedfor_by_task.py
+  events_ol: scripts/build_ol_bids_events_from_behavioral_runs.py
+  events_sra: scripts/build_sra_bids_events_from_behavioral_runs.py
+  events_trust: scripts/build_trust_bids_events_from_behavioral_runs.py
+  fmriprep: scripts/run_fmriprep_runs.sh
+
+testing:
+  participants: []
+
+execution:
+  allow_bids_conversion: true
+  allow_intendedfor_write: true
+  allow_event_generation: true
+  permit_fmriprep_submission: true
+
+fmriprep:
+  maximum_concurrent_jobs: 3
+  weekend_days:
+    - 6
+    - 7
