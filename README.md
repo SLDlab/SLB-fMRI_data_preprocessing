@@ -250,7 +250,7 @@ The production Slack webhook is stored locally and must never be committed to ve
 
 | Stage | Script | Responsibility |
 |---|---|---|
-| 1 | `extract_mnc.sh` | Extract raw scanner data from remote archive |
+| 1 | `sync-slb.sh` (production), `extract_mnc.sh` (manual) | Transfer raw scanner data from fMRI2 to SLD |
 | 2 | `bidsify_runs.sh` | Convert DICOMs to BIDS with HeuDiConv |
 | 3 | `add_intendedfor_by_task.py` | Add correct `IntendedFor` mappings to fieldmaps |
 | 4 | `build_*_bids_events_from_behavioral_runs.py` | Build BIDS `events.tsv` from behavioral outputs |
@@ -279,49 +279,134 @@ Before running the pipeline, make sure the following are available:
 - required containers available locally or pullable at runtime
 
 
-## Stage 1. Raw Extraction
+## Stage 1. Raw Data Transfer (fMRI2 → SLD)
 
-### Script
-`extract_mnc.sh`
+### Production Script
+
+`/usr/local/sbin/sync-slb.sh`
 
 ### Purpose
-Copies raw scanner data from the remote `fmri2` archive into local `raw_data/` while preserving the session structure.
+
+Automatically transfers raw SLB scanner data from the fMRI2 server to the SLD server for downstream preprocessing.
+
+The production transfer is managed by a system-level script and runs automatically every day at 2:00 AM.
 
 ### What it does
 
-- connects to the remote scanner archive using `rsync` over SSH
-- copies only valid SLB participant folders
-- skips phantom and legacy folders such as `SLB_p###`
-- supports dry runs and mirrored deletion
-- uses a lockfile to prevent concurrent extraction
-- normalizes subject IDs such as `003/` into `SLB_003/`
-- appends activity to the extraction log
+- Connects to fMRI2 using SSH with Kerberos/GSSAPI authentication.
+- Uses a dedicated service account rather than personal UMD credentials.
+- Transfers new or updated files using `rsync`.
+- Preserves the raw-data directory structure.
+- Performs incremental synchronization without unnecessarily copying existing files.
+- Does not automatically delete destination files that are removed from the source.
+- Records transfer activity and statistics in the production log.
 
-### Input
-Remote scanner archive under the SLB Social Learning directory on `fmri2`.
+### Source
 
-### Output
+```text
+fmri2.umd.edu
 
+/export/software/fmri/massstorage/Caroline Charpentier/SLB Social Learning/
 ```
-raw_data/SLB_###/<session>/
-logs/extract.log
-```
-### Commands
 
-Manual extraction: 
+### Destination
+
+```text
+/data/sld/homes/collab/slb/raw_data/
+```
+
+### Automated Schedule
+
+The production transfer runs daily at 2:00 AM through cron:
+
+```cron
+0 2 * * * /usr/local/sbin/sync-slb.sh >> /var/log/sld-slb-sync.log 2>&1
+```
+
+Under normal operation, no manual transfer is required.
+
+### Checking Transfer Status
+
+To inspect the production transfer log:
+
+```bash
+tail -n 100 /var/log/sld-slb-sync.log
+```
+
+To view recent successful transfers:
+
+```bash
+grep "Completed SLD raw data pull" \
+    /var/log/sld-slb-sync.log | tail
+```
+
+To check transferred participant data:
+
+```bash
+ls -lah /data/sld/homes/collab/slb/raw_data/
+```
+
+A successful transfer means the raw scanner data has reached SLD. It does not mean BIDS conversion or fMRIPrep has completed.
+
+### Manual Extraction Utility
+
+The repository also contains:
+
+```text
+extract_mnc.sh
+```
+
+This is the original extraction utility and remains available for manual transfers and troubleshooting.
+
+It is not responsible for the scheduled production transfer.
+
+From the SLB project directory on SLD:
+
+```bash
+cd /data/sld/homes/collab/slb
+```
+
+Manual extraction:
+
 ```bash
 ./scripts/extract_mnc.sh
 ```
-Dry run: 
+
+Dry run:
+
 ```bash
 ./scripts/extract_mnc.sh -n
 ```
 
-Restricted to specific sessions: 
+Restrict extraction to specific sessions:
+
 ```bash
 ./scripts/extract_mnc.sh -S 202512*
 ```
 
+For normal automated operations, use the production `sync-slb.sh` workflow instead.
+
+### Transfer Notifications
+
+The transfer notification script is:
+
+```text
+scripts/nightly_extract_and_notify.sh
+```
+
+It runs daily at 8:00 AM, after the scheduled raw-data transfer.
+
+The notifier reads the production rsync log:
+
+```text
+/var/log/sld-slb-sync.log
+```
+
+It also compares raw-data file counts and storage totals against the previous snapshot.
+
+Slack notifications are sent when new raw data is detected or a transfer error is identified.
+
+The notification script does not initiate the production transfer or run `extract_mnc.sh`.
  ## Stage 2. BIDS Conversion
 
 ### Script
